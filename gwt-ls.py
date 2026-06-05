@@ -272,9 +272,21 @@ def enrich_session(s: Session, worktree_path: str) -> None:
     _enrich_session_from_path(s, proj_dir / f"{s.uuid}.jsonl")
 
 
-def discover_latest_sessions(n: int, filter_path: Path | None) -> list[Session]:
+_TMP_PREFIXES = ("/tmp/", "/var/tmp/")
+
+
+def _is_tmp_cwd(path: str) -> bool:
+    return path in ("/tmp", "/var/tmp") or any(path.startswith(p) for p in _TMP_PREFIXES)
+
+
+def discover_latest_sessions(
+    n: int, filter_path: Path | None, *, include_tmp: bool = False,
+) -> list[Session]:
     """Enumerate every JSONL under ~/.claude/projects, sort by mtime desc, return top N
-    (optionally filtered to sessions whose recorded cwd is under `filter_path`)."""
+    (optionally filtered to sessions whose recorded cwd is under `filter_path`).
+
+    By default sessions whose cwd lives under /tmp or /var/tmp are skipped (these are
+    almost always short throwaway runs); set include_tmp=True to keep them."""
     candidates: list[tuple[float, Path, str, int]] = []
     if not CLAUDE_PROJECTS.is_dir():
         return []
@@ -302,6 +314,8 @@ def discover_latest_sessions(n: int, filter_path: Path | None) -> list[Session]:
                 continue
             if cwd_r != filter_path and not cwd_r.is_relative_to(filter_path):
                 continue
+        elif not include_tmp and s.last_cwd and _is_tmp_cwd(s.last_cwd):
+            continue
         out.append(s)
         if len(out) >= n:
             break
@@ -754,6 +768,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("-a", "--all", action="store_true", help="show all sessions (overrides -s)")
     ap.add_argument("-c", "--claude", action="store_true",
                     help="latest Claude sessions across all worktrees, sorted by recency")
+    ap.add_argument("--include-tmp", action="store_true",
+                    help="in -c mode, also include sessions whose cwd is under /tmp")
     ap.add_argument("-x", "--extras", action="store_true",
                     help="add full session id and last user prompt below each detail line")
     ap.add_argument("--no-pr-titles", action="store_true",
@@ -789,6 +805,7 @@ def main(argv: list[str]) -> int:
         sessions = discover_latest_sessions(
             n=args.session_details if args.session_details > 0 else 0,
             filter_path=filter_path,
+            include_tmp=args.include_tmp,
         )
         progressive = (
             sessions and not args.no_pr_titles and not args.json and use_color
