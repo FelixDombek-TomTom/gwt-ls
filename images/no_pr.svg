@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 661 200" width="661" height="200">
+<rect width="661" height="200" fill="#282c34" rx="6"/>
+<text x="14" y="23" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#abb2bf" xml:space="preserve">
+$ gls --no-pr-titles ~/code/multi-repo
+<tspan x="14" dy="18"><tspan font-weight="bold">multi-repo</tspan>    <tspan fill="#5c6370">/home/user/code/multi-repo</tspan></tspan>
+<tspan x="14" dy="18">  *  2026-04-01 17:22  —  <tspan fill="#56b6c2">(non-git)</tspan>  1 session</tspan>
+<tspan x="14" dy="18">     <tspan fill="#5c6370">2026-04-08 11:55  4.5M</tspan>  Evaluate options for new prototype</tspan>
+<tspan x="14" dy="18">                             <tspan fill="#e5c07b">#842</tspan></tspan>
+<tspan x="14" dy="18"></tspan>
+<tspan x="14" dy="18"><tspan font-weight="bold">frontend</tspan>    <tspan fill="#5c6370">/home/user/code/multi-repo/frontend</tspan></tspan>
+<tspan x="14" dy="18">  *    2026-04-09 16:25  aee2268b  <tspan fill="#56b6c2">main</tspan>  5 sessions</tspan>
+<tspan x="14" dy="18">       <tspan fill="#5c6370">2026-04-02 00:51      1.9M</tspan>  Plan backwards-compatible constructor refactor</tspan>
+<tspan x="14" dy="18">                                   <tspan fill="#e5c07b">#341</tspan></tspan>
+</text></svg>

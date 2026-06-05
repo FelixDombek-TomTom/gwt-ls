@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 771 236" width="771" height="236">
+<rect width="771" height="236" fill="#282c34" rx="6"/>
+<text x="14" y="23" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#abb2bf" xml:space="preserve">
+$ gls -c
+<tspan x="14" dy="18"><tspan font-weight="bold">projects/dotfiles</tspan></tspan>
+<tspan x="14" dy="18">  <tspan fill="#5c6370">2026-04-10 15:59    1.8M</tspan>  fix-prompt-formatting</tspan>
+<tspan x="14" dy="18"></tspan>
+<tspan x="14" dy="18"><tspan font-weight="bold">multi-repo/frontend</tspan></tspan>
+<tspan x="14" dy="18">  <tspan fill="#5c6370">2026-04-10 15:54    1.9M</tspan>  Wire up new builder API</tspan>
+<tspan x="14" dy="18">                            <tspan fill="#e5c07b">#348 refactor(api): migrate construction to builder pattern</tspan>  <tspan fill="#e06c75">[CI ✗]</tspan></tspan>
+<tspan x="14" dy="18"></tspan>
+<tspan x="14" dy="18"><tspan font-weight="bold">multi-repo/backend-wt4</tspan>  <tspan fill="#56b6c2">main</tspan></tspan>
+<tspan x="14" dy="18">  <tspan fill="#5c6370">2026-04-10 10:12    4.5M</tspan>  Review failing CI on feature branch</tspan>
+<tspan x="14" dy="18">                            <tspan fill="#e5c07b">#356 feat(demo): expose new field in the demo app</tspan>  <tspan fill="#c678dd">[merged]</tspan></tspan>
+<tspan x="14" dy="18">…</tspan>
+</text></svg>

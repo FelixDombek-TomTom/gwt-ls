@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 747 308" width="747" height="308">
+<rect width="747" height="308" fill="#282c34" rx="6"/>
+<text x="14" y="23" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#abb2bf" xml:space="preserve">
+$ gls -x ~/code/multi-repo
+<tspan x="14" dy="18"><tspan font-weight="bold">multi-repo</tspan>    <tspan fill="#5c6370">/home/user/code/multi-repo</tspan></tspan>
+<tspan x="14" dy="18">  *  2026-04-01 17:22  —  <tspan fill="#56b6c2">(non-git)</tspan>  1 session</tspan>
+<tspan x="14" dy="18">     <tspan fill="#5c6370">2026-04-08 11:55  4.5M</tspan>  Evaluate options for new prototype</tspan>
+<tspan x="14" dy="18">                             <tspan fill="#e5c07b">#842 feat(experiment): add prototype playground</tspan>  <tspan fill="#5c6370">[draft]</tspan> <tspan fill="#e06c75">[CI ✗]</tspan></tspan>
+<tspan x="14" dy="18">                             <tspan fill="#5c6370">@ frontend</tspan></tspan>
+<tspan x="14" dy="18">                             <tspan fill="#5c6370">5806e16b-4127-4123-81be-868100926c27</tspan></tspan>
+<tspan x="14" dy="18">                             <tspan fill="#5c6370">↳ try a different approach</tspan></tspan>
+<tspan x="14" dy="18"></tspan>
+<tspan x="14" dy="18"><tspan font-weight="bold">frontend</tspan>    <tspan fill="#5c6370">/home/user/code/multi-repo/frontend</tspan></tspan>
+<tspan x="14" dy="18">  *    2026-04-09 16:25  aee2268b  <tspan fill="#56b6c2">main</tspan>  5 sessions</tspan>
+<tspan x="14" dy="18">       <tspan fill="#5c6370">2026-04-02 00:51      1.9M</tspan>  Plan backwards-compatible constructor refactor</tspan>
+<tspan x="14" dy="18">                                   <tspan fill="#e5c07b">#341 refactor(api): tidy up the public surface</tspan>  <tspan fill="#c678dd">[merged]</tspan></tspan>
+<tspan x="14" dy="18">                                   <tspan fill="#56b6c2">main</tspan></tspan>
+<tspan x="14" dy="18">                                   <tspan fill="#5c6370">483166e0-cb02-4520-8cb9-4f33ea2f25ce</tspan></tspan>
+<tspan x="14" dy="18">                                   <tspan fill="#5c6370">↳ Check the CI failures</tspan></tspan>
+</text></svg>

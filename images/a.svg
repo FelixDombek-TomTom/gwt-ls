@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 739 182" width="739" height="182">
+<rect width="739" height="182" fill="#282c34" rx="6"/>
+<text x="14" y="23" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#abb2bf" xml:space="preserve">
+$ gls -a ~/code/multi-repo
+<tspan x="14" dy="18">…</tspan>
+<tspan x="14" dy="18">       <tspan fill="#5c6370">2026-04-02 00:51      1.9M</tspan>  Plan backwards-compatible constructor refactor</tspan>
+<tspan x="14" dy="18">                                   <tspan fill="#e5c07b">#341 refactor(api): tidy up the public surface</tspan>  <tspan fill="#c678dd">[merged]</tspan></tspan>
+<tspan x="14" dy="18">       <tspan fill="#5c6370">2026-03-26 04:53      1.0M</tspan>  Fix CI failures in pull request</tspan>
+<tspan x="14" dy="18">                                   <tspan fill="#e5c07b">#310 feat(api): add new override params</tspan>  <tspan fill="#c678dd">[merged]</tspan></tspan>
+<tspan x="14" dy="18">       <tspan fill="#5c6370">2026-03-25 18:18      1.0M</tspan>  Review tradeoff analysis table</tspan>
+<tspan x="14" dy="18">       <tspan fill="#5c6370">2026-03-17 16:08     61.5K</tspan>  Inspect frozen Docker container</tspan>
+<tspan x="14" dy="18">       <tspan fill="#5c6370">2026-03-11 12:27     21.4K</tspan>  Add line break in statusline</tspan>
+</text></svg>
