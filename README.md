@@ -4,8 +4,8 @@ Inspect git worktrees alongside the Claude Code sessions that ran in them.
 
 A single-file Python tool. Two complementary views:
 
-- **Worktree view** (default): per-repo blocks listing every worktree, its branch, and the latest Claude session(s) — title, PR (clickable OSC 8 link), badges for `[merged]` / `[closed]` / `[draft]` / `[CI ✓ / ✗ / ⋯]` / `[approved]` / `[changes requested]`.
-- **Latest-sessions feed** (`-c`): flat list of the most recent Claude sessions across all worktrees, newest first, with optional cwd-prefix filter.
+- **Worktree view** (default): per-repo blocks listing every worktree, its branch, and the latest Claude session(s), incl. PRs and their status.
+- **Latest-sessions feed** (`-c`): list of the most recent Claude sessions across all worktrees, newest first, optionally filtered by dir.
 
 PR titles and badges are fetched in parallel from `gh` and rendered progressively — the table appears instantly with `#NUM …` placeholders; each PR's full info then patches into its line as it arrives.
 
