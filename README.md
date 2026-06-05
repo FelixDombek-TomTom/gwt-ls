@@ -39,7 +39,3 @@ gls --no-pr-titles        # skip gh PR lookups (offline-safe / instant)
 - With `-x`: branch (from the JSONL — sometimes a different subdir than the worktree if the session was started in a parent folder), session slug + UUID, and the most recent user prompt.
 
 PR titles and badges are fetched in parallel from `gh` and rendered progressively — the table appears instantly with `#NUM …` placeholders, then each PR's full info patches into its line as it arrives.
-
-## License
-
-MIT
