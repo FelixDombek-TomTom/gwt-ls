@@ -202,7 +202,7 @@ def fetch_pr_titles(sessions: list[Session]) -> None:
 
 def encode_project_path(p: str) -> str:
     # Claude Code's project-dir encoding: replace '/' and '.' with '-'.
-    # Verified on e.g. /home/felix.dombek/.claude → -home-felix-dombek--claude.
+    # e.g. /home/jane/.claude → -home-jane--claude.
     return p.replace("/", "-").replace(".", "-")
 
 
