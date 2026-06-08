@@ -23,7 +23,7 @@ Examples below use a fictional org `example-org` and a hypothetical `~/code/mult
 
 ### `gls [PATH]` — default (folder or repo mode)
 
-When `PATH` (or `$PWD`) is inside a git repo, lists that repo's worktrees. Otherwise scans `PATH`'s children for repos and groups them. Implicitly enables `-s 1`.
+When `PATH` (or `$PWD`) is inside a git repo, lists that repo's worktrees. Otherwise scans `PATH`'s children for repos and groups them. Implicitly enables `-n 1`.
 
 ![](images/default.svg)
 
