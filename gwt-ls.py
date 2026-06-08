@@ -391,8 +391,15 @@ def render_latest(
 
 
 def discover_repos_in_folder(folder: Path) -> tuple[list[Repo], list[str]]:
-    """Returns (repos, other_entries). other_entries are basenames of non-git children."""
+    """Returns (repos, other_entries).
+
+    repos includes both real git repos (grouped by common_dir) and synthetic
+    "non-git but has-Claude-sessions" entries — both rendered as Repo blocks.
+    other_entries holds basenames of leftover children: non-git dirs with no
+    sessions, plus all files and symlinks.
+    """
     groups: dict[str, list[str]] = {}
+    non_git_with_sessions: list[Repo] = []
     others: list[str] = []
     try:
         children = sorted(folder.iterdir(), key=lambda p: p.name)
@@ -404,10 +411,25 @@ def discover_repos_in_folder(folder: Path) -> tuple[list[Repo], list[str]]:
             others.append(name)
             continue
         cd = common_dir_of(str(child))
-        if cd is None:
+        if cd is not None:
+            groups.setdefault(cd, []).append(str(child.resolve()))
+            continue
+        # not a git worktree — does it have any Claude sessions?
+        sess = load_sessions(str(child))
+        if not sess:
             others.append(name)
             continue
-        groups.setdefault(cd, []).append(str(child.resolve()))
+        try:
+            dir_mtime = child.stat().st_mtime
+        except OSError:
+            dir_mtime = None
+        wt = Worktree(
+            path=str(child.resolve()),
+            head="", branch=None, detached=False,
+            is_main=True, dir_mtime=dir_mtime, external=False,
+            sessions=sess,
+        )
+        non_git_with_sessions.append(Repo(name=name, common_dir="", worktrees=[wt]))
 
     repos: list[Repo] = []
     folder_resolved = str(folder.resolve())
@@ -422,6 +444,7 @@ def discover_repos_in_folder(folder: Path) -> tuple[list[Repo], list[str]]:
             w.sessions = load_sessions(w.path)
         name = Path(worktrees[0].path).name  # main worktree basename = repo name
         repos.append(Repo(name=name, common_dir=cd, worktrees=worktrees))
+    repos.extend(non_git_with_sessions)
     repos.sort(key=lambda r: r.name)
     return repos, others
 
