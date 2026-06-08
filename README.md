@@ -7,8 +7,6 @@ A single-file Python tool. Two complementary views:
 - **Worktree view** (default): per-repo blocks listing every worktree, its branch, and the latest Claude session(s), incl. PRs and their status.
 - **Latest-sessions feed** (`-c`): list of the most recent Claude sessions across all worktrees, newest first, optionally filtered by dir.
 
-PR titles and badges are fetched in parallel from `gh` and rendered progressively — the table appears instantly with `#NUM …` placeholders; each PR's full info then patches into its line as it arrives.
-
 ## Install
 
 ```sh
@@ -106,4 +104,5 @@ Forces plain output even on a TTY. Useful when piping to a pager or capturing fo
 
 - Session data lives in `~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl`. The encoding is `/` and `.` → `-`. gwt-ls reads these directly.
 - PR titles and statuses come from `gh pr view --json title,state,isDraft,statusCheckRollup,reviewDecision`. No network requests are made for non-PR sessions, and `--no-pr-titles` skips all of them.
+- PR titles and statuses are fetched in parallel from `gh` and rendered progressively — the table appears instantly with `#NUM …` placeholders; each PR's full info then patches into its line as it arrives.
 - All output is read-only; the tool never mutates worktrees, git state, or session files.
