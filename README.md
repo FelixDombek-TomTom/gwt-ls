@@ -29,17 +29,17 @@ When `PATH` (or `$PWD`) is inside a git repo, lists that repo's worktrees. Other
 
 The `*` marks the main worktree; secondary worktrees show their suffix (`wt1`, `wt2`…). A `→` prefix marks the worktree containing your current `$PWD`. Non-git folders that ran Claude sessions still appear (with `—  (non-git)` instead of sha/branch).
 
-### `-s N`, `--session-details N` — how many session detail lines
+### `-n N`, `--num N` — how many session detail lines
 
-Default `1`. `-s 0` collapses each worktree to a one-line summary with `last <date>`.
+Default `1`. `-n 0` collapses each worktree to a one-line summary with `last <date>`.
 
-![](images/s0.svg)
+![](images/n0.svg)
 
-![](images/s3.svg)
+![](images/n3.svg)
 
 ### `-a`, `--all` — every session, no cap
 
-Overrides `-s`.
+Overrides `-n`.
 
 ![](images/a.svg)
 
@@ -51,7 +51,7 @@ Adds three indented lines beneath each detail row. Useful when a session was sta
 
 ### `-c`, `--claude` — latest Claude sessions across everything
 
-A flat feed of the most recent sessions, regardless of which repo or worktree they belong to. Bumps the default of `-s` to `10`. Combines with `-s N` and `-a`.
+A flat feed of the most recent sessions, regardless of which repo or worktree they belong to. Bumps the default of `-n` to `10`. Combines with `-n N` and `-a`.
 
 ![](images/c.svg)
 

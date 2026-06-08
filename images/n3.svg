@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 739 182" width="739" height="182">
 <rect width="739" height="182" fill="#282c34" rx="6"/>
 <text x="14" y="23" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#abb2bf" xml:space="preserve">
-$ gls -s 3 ~/code/multi-repo
+$ gls -n 3 ~/code/multi-repo
 <tspan x="14" dy="18">…</tspan>
 <tspan x="14" dy="18"><tspan font-weight="bold">frontend</tspan>    <tspan fill="#5c6370">/home/user/code/multi-repo/frontend</tspan></tspan>
 <tspan x="14" dy="18">  *    2026-04-09 16:25  aee2268b  <tspan fill="#56b6c2">main</tspan>  5 sessions</tspan>

@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 771 146" width="771" height="146">
 <rect width="771" height="146" fill="#282c34" rx="6"/>
 <text x="14" y="23" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#abb2bf" xml:space="preserve">
-$ gls -s 0 ~/code/multi-repo
+$ gls -n 0 ~/code/multi-repo
 <tspan x="14" dy="18"><tspan font-weight="bold">multi-repo</tspan>    <tspan fill="#5c6370">/home/user/code/multi-repo</tspan></tspan>
 <tspan x="14" dy="18">  *  2026-04-01 17:22  —  <tspan fill="#56b6c2">(non-git)</tspan>  1 session, last 2026-04-08 11:55</tspan>
 <tspan x="14" dy="18"></tspan>

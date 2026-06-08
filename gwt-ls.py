@@ -343,7 +343,7 @@ def _session_label(s: Session) -> str:
 
 
 def render_latest(
-    sessions: list[Session], sd: int, extras: bool, st: Style, *,
+    sessions: list[Session], num: int, extras: bool, st: Style, *,
     collect_pending: bool = False,
 ) -> tuple[str, list[PRPending]]:
     out: list[str] = []
@@ -542,7 +542,7 @@ def _pr_line(s: Session, pr_indent: str, st: Style, *, loading: bool) -> str | N
 
 
 def render_repo(
-    repo: Repo, sd: int, extras: bool, st: Style, *,
+    repo: Repo, num: int, extras: bool, st: Style, *,
     line_offset: int = 0, pending: list[PRPending] | None = None,
 ) -> list[str]:
     lines: list[str] = []
@@ -568,7 +568,7 @@ def render_repo(
             n = len(w.sessions)
             base = f"{n} session{'s' if n != 1 else ''}"
             # omit ", last ..." when detail lines will show the same info right below
-            sess_txt = base if sd > 0 else f"{base}, last {fmt_mtime(w.sessions[0].mtime)}"
+            sess_txt = base if num > 0 else f"{base}, last {fmt_mtime(w.sessions[0].mtime)}"
         else:
             sess_txt = st.dim("0 sessions")
         rows.append((lbl, mt, sha, branch_txt, sess_txt, w))
@@ -597,14 +597,14 @@ def render_repo(
             + sess
         )
         lines.append(st.bold(row) if w.current else row)
-        if sd > 0:
+        if num > 0:
             # detail rows: timestamp under worktree mtime; size under sha → title aligns with branch
             indent = " " * (2 + w_lbl + 2)
-            sizes = [fmt_size(s.size) for s in w.sessions[:sd]]
+            sizes = [fmt_size(s.size) for s in w.sessions[:num]]
             size_w = max([w_sha] + [len(x) for x in sizes]) if sizes else w_sha
             extras_indent = indent + " " * (w_mt + 2 + size_w + 2)
             pr_indent = extras_indent  # PR sits under the title column, same x-offset as extras
-            for s in w.sessions[:sd]:
+            for s in w.sessions[:num]:
                 lines.append(_title_line(s, indent, w_mt, size_w, st))
                 loading = (
                     pending is not None
@@ -653,7 +653,7 @@ def render_repo(
 
 def render_human(
     repos: list[Repo], others: list[str], mode: str, target: str,
-    sd: int, extras: bool, st: Style, *,
+    num: int, extras: bool, st: Style, *,
     collect_pending: bool = False,
 ) -> tuple[str, list[PRPending]]:
     out: list[str] = []
@@ -661,7 +661,7 @@ def render_human(
     for i, r in enumerate(repos):
         if i > 0:
             out.append("")
-        out.extend(render_repo(r, sd, extras, st, line_offset=len(out), pending=pending))
+        out.extend(render_repo(r, num, extras, st, line_offset=len(out), pending=pending))
     if others:
         out.append("")
         out.append(st.dim("other entries:"))
@@ -738,7 +738,7 @@ def to_json(repos: list[Repo], others: list[str], mode: str, target: str) -> str
                         "count": len(w.sessions),
                         "latest_mtime": w.sessions[0].mtime if w.sessions else None,
                         "items": [asdict(s) for s in w.sessions],
-                    },  # title/last_prompt/pr_* are populated only for sessions enriched via -sd
+                    },  # title/last_prompt/pr_* are populated only for sessions enriched via -n
                 }
                 for w in r.worktrees
             ],
@@ -760,12 +760,12 @@ def main(argv: list[str]) -> int:
     )
     ap.add_argument("path", nargs="?", default=".", help="folder or git working tree (default: PWD)")
     ap.add_argument(
-        "-s", "--session-details",
+        "-n", "--num",
         type=int, nargs="?", const=1, default=None, metavar="N",
         help="show detail lines for the N most recent sessions per worktree "
-             "(default: 1, or 10 in -c mode; -s 0 to suppress)",
+             "(default: 1, or 10 in -c mode; -n 0 to suppress)",
     )
-    ap.add_argument("-a", "--all", action="store_true", help="show all sessions (overrides -s)")
+    ap.add_argument("-a", "--all", action="store_true", help="show all sessions (overrides -n)")
     ap.add_argument("-c", "--claude", action="store_true",
                     help="latest Claude sessions across all worktrees, sorted by recency")
     ap.add_argument("--include-tmp", action="store_true",
@@ -778,10 +778,10 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--no-color", action="store_true", help="disable ANSI color")
     args = ap.parse_args(argv)
     # default N depends on mode: feed default = 10, normal default = 1
-    if args.session_details is None:
-        args.session_details = 10 if args.claude else 1
+    if args.num is None:
+        args.num = 10 if args.claude else 1
     if args.all:
-        args.session_details = sys.maxsize
+        args.num = sys.maxsize
 
     # path resolution differs by mode: in -c mode "." means "no filter" (use as filter only
     # if the user explicitly typed a path); in normal mode it's the folder/repo to scan
@@ -803,7 +803,7 @@ def main(argv: list[str]) -> int:
     if args.claude:
         filter_path = target if explicit_path else None
         sessions = discover_latest_sessions(
-            n=args.session_details if args.session_details > 0 else 0,
+            n=args.num if args.num > 0 else 0,
             filter_path=filter_path,
             include_tmp=args.include_tmp,
         )
@@ -820,7 +820,7 @@ def main(argv: list[str]) -> int:
             }, indent=2))
         else:
             text, pending = render_latest(
-                sessions, args.session_details, args.extras, st,
+                sessions, args.num, args.extras, st,
                 collect_pending=progressive,
             )
             total_lines = text.count("\n") + 1
@@ -863,10 +863,10 @@ def main(argv: list[str]) -> int:
 
     # enrich the sessions that will actually be shown in detail (whole-file scan per session)
     shown: list[Session] = []
-    if args.session_details > 0:
+    if args.num > 0:
         for r in repos:
             for w in r.worktrees:
-                for s in w.sessions[: args.session_details]:
+                for s in w.sessions[: args.num]:
                     enrich_session(s, w.path)
                     shown.append(s)
     # PR titles: progressive fill on TTY (renders the table immediately, patches each
@@ -898,7 +898,7 @@ def main(argv: list[str]) -> int:
     else:
         text, pending = render_human(
             repos, others, mode, str(target),
-            args.session_details, args.extras, st,
+            args.num, args.extras, st,
             collect_pending=progressive,
         )
         total_lines = text.count("\n") + 1
