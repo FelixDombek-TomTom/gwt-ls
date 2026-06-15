@@ -351,7 +351,9 @@ def render_latest(
     w_mt = 16   # "YYYY-MM-DD HH:MM"
     size_w = 6
     indent = "  "
-    pr_indent = " " * (2 + w_mt + 2 + size_w + 2)
+    # +10 for the 8-char short uuid column + 2 spaces, so the PR / extras lines
+    # align under the title column on the detail row
+    pr_indent = " " * (2 + w_mt + 2 + size_w + 2 + 8 + 2)
     extras_indent = pr_indent
 
     for i, s in enumerate(sessions):
@@ -543,7 +545,8 @@ def _title_line(s: Session, indent: str, w_mt: int, size_w: int, st: Style) -> s
     else:
         title_parts.append(st.dim("(no title)"))
     title = "  ".join(title_parts)
-    meta = st.dim(f"{fmt_mtime(s.mtime):<{w_mt}}  {fmt_size(s.size):>{size_w}}")
+    short_uuid = s.uuid.split("-", 1)[0]
+    meta = st.dim(f"{fmt_mtime(s.mtime):<{w_mt}}  {fmt_size(s.size):>{size_w}}  {short_uuid}")
     return f"{indent}{meta}  {title}"
 
 
@@ -625,7 +628,8 @@ def render_repo(
             indent = " " * (2 + w_lbl + 2)
             sizes = [fmt_size(s.size) for s in w.sessions[:num]]
             size_w = max([w_sha] + [len(x) for x in sizes]) if sizes else w_sha
-            extras_indent = indent + " " * (w_mt + 2 + size_w + 2)
+            # +10 for the 8-char short uuid column + 2 spaces (see _title_line)
+            extras_indent = indent + " " * (w_mt + 2 + size_w + 2 + 8 + 2)
             pr_indent = extras_indent  # PR sits under the title column, same x-offset as extras
             for s in w.sessions[:num]:
                 lines.append(_title_line(s, indent, w_mt, size_w, st))
