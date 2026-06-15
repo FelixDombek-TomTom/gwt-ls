@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 from dataclasses import dataclass, field, asdict
@@ -277,6 +278,89 @@ _TMP_PREFIXES = ("/tmp/", "/var/tmp/")
 
 def _is_tmp_cwd(path: str) -> bool:
     return path in ("/tmp", "/var/tmp") or any(path.startswith(p) for p in _TMP_PREFIXES)
+
+
+def _resume_index() -> list[Session]:
+    """Lightweight uuid + cwd index across all Claude session JSONLs.
+
+    Reads only the first line of each file to recover cwd from the envelope
+    (much cheaper than full enrichment). Used by `gls -r <prefix>`.
+    """
+    out: list[Session] = []
+    if not CLAUDE_PROJECTS.is_dir():
+        return out
+    for proj_dir in CLAUDE_PROJECTS.iterdir():
+        if not proj_dir.is_dir():
+            continue
+        for f in proj_dir.glob("*.jsonl"):
+            try:
+                st = f.stat()
+            except OSError:
+                continue
+            cwd: str | None = None
+            try:
+                with f.open(encoding="utf-8", errors="replace") as fh:
+                    for line in fh:
+                        if not line.strip():
+                            continue
+                        try:
+                            r = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if v := r.get("cwd"):
+                            cwd = v
+                            break
+            except OSError:
+                pass
+            out.append(Session(
+                uuid=f.stem, mtime=st.st_mtime, size=st.st_size,
+                last_cwd=cwd,
+            ))
+    return out
+
+
+def resume_claude(prefix: str, prompt: str | None, *, dry_run: bool) -> int:
+    """Look up a Claude session by short-UUID prefix, chdir to its workdir, exec claude -r.
+
+    Returns an exit code on error; on success, replaces the current process.
+    """
+    matches = [s for s in _resume_index() if s.uuid.startswith(prefix)]
+    if not matches:
+        print(f"gls: no session matches prefix {prefix!r}", file=sys.stderr)
+        return 2
+    if len(matches) > 1:
+        print(f"gls: prefix {prefix!r} matches multiple sessions:", file=sys.stderr)
+        matches.sort(key=lambda s: s.mtime, reverse=True)
+        for s in matches[:10]:
+            label = _session_label(s)
+            ts = fmt_mtime(s.mtime)
+            print(f"  {s.uuid[:8]}  {ts}  {label}", file=sys.stderr)
+        if len(matches) > 10:
+            print(f"  … ({len(matches) - 10} more)", file=sys.stderr)
+        print("specify more characters to disambiguate.", file=sys.stderr)
+        return 2
+    s = matches[0]
+    cwd = s.last_cwd
+    if not cwd or not Path(cwd).is_dir():
+        if cwd:
+            print(f"gls: warning: recorded workdir {cwd!r} doesn't exist; using $HOME",
+                  file=sys.stderr)
+        else:
+            print(f"gls: warning: no recorded workdir for {s.uuid[:8]}; using $HOME",
+                  file=sys.stderr)
+        cwd = str(Path.home())
+    cmd = ["claude", "-r", s.uuid] + ([prompt] if prompt else [])
+    if dry_run:
+        print(f"# would chdir to: {cwd}")
+        print(f"# would exec:     {' '.join(shlex.quote(a) for a in cmd)}")
+        return 0
+    os.chdir(cwd)
+    try:
+        os.execvp(cmd[0], cmd)
+    except FileNotFoundError:
+        print(f"gls: {cmd[0]!r} not on PATH", file=sys.stderr)
+        return 127
+    return 0  # unreachable
 
 
 def discover_latest_sessions(
@@ -803,7 +887,18 @@ def main(argv: list[str]) -> int:
                     help="skip fetching PR titles via `gh` (faster, offline-safe)")
     ap.add_argument("--json", action="store_true", help="emit JSON instead of human view")
     ap.add_argument("--no-color", action="store_true", help="disable ANSI color")
+    ap.add_argument("-r", "--resume", metavar="PREFIX",
+                    help="resume a Claude session by short-UUID prefix (chdir to its workdir, "
+                         "then exec `claude -r <uuid>`); pass PATH as the initial prompt")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="with -r: print the chdir + exec command without running them")
     args = ap.parse_args(argv)
+
+    # -r is an action mode; it short-circuits everything else
+    if args.resume:
+        # treat the optional positional as the initial prompt
+        prompt = args.path if args.path != "." else None
+        return resume_claude(args.resume, prompt, dry_run=args.dry_run)
     # default N depends on mode: feed default = 10, normal default = 1
     if args.num is None:
         args.num = 10 if args.claude else 1
