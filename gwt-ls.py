@@ -323,10 +323,29 @@ def _resume_index() -> list[Session]:
 
 CLAUDE_ACTIVE = Path.home() / ".claude" / "active"
 DEFAULT_TABS_PATH = Path.home() / ".claude" / "tabs.json"
-DEFAULT_TAB_OPENER = (
-    "gnome-terminal --tab --working-directory={cwd} -- "
-    "bash -ic '{cmd}; exec bash'"
-)
+
+
+def _default_tab_opener() -> str:
+    """Build the default opener at call-time so it picks up the current $SHELL.
+
+    The first shell skips its rc file (--norc for bash, --no-rcs for zsh) so a
+    setup that exec's another shell from rc (e.g. `exec zsh` in .bashrc) can't
+    swallow the `-c` argument before claude launches. The trailing `exec $SHELL`
+    is a normal interactive invocation that re-loads the rc — so the post-claude
+    shell behaves exactly as a fresh terminal would.
+    """
+    shell = os.environ.get("SHELL", "/bin/bash")
+    name = Path(shell).name
+    if name == "bash":
+        pre = f"{shell} --norc"
+    elif name == "zsh":
+        pre = f"{shell} --no-rcs"
+    else:
+        pre = shell  # fish / other — best effort, may need GLS_TAB_OPENER override
+    return (
+        "gnome-terminal --tab --working-directory={cwd} -- "
+        f"{pre} -ic '{{cmd}}; exec {shell}'"
+    )
 
 
 def _pid_alive(pid: int) -> bool:
@@ -469,7 +488,7 @@ def live_sessions() -> list[Session]:
 
 def spawn_tab(cwd: str, uuid: str | None) -> None:
     """Fire-and-forget detached spawn of a new gnome-terminal tab via $GLS_TAB_OPENER."""
-    template = os.environ.get("GLS_TAB_OPENER", DEFAULT_TAB_OPENER)
+    template = os.environ.get("GLS_TAB_OPENER", _default_tab_opener())
     cmd_inner = f"claude -r {shlex.quote(uuid)}" if uuid else "claude"
     rendered = template.format(cwd=shlex.quote(cwd), cmd=cmd_inner, uuid=uuid or "")
     subprocess.Popen(
@@ -516,7 +535,7 @@ def restore_tabs(path: Path, *, dry_run: bool = False) -> int:
         if not cwd:
             continue
         if dry_run:
-            template = os.environ.get("GLS_TAB_OPENER", DEFAULT_TAB_OPENER)
+            template = os.environ.get("GLS_TAB_OPENER", _default_tab_opener())
             cmd_inner = f"claude -r {shlex.quote(uuid)}" if uuid else "claude"
             rendered = template.format(cwd=shlex.quote(cwd), cmd=cmd_inner, uuid=uuid or "")
             print(f"# {rendered}")
@@ -562,7 +581,7 @@ def resume_claude(prefix: str, prompt: str | None, *, dry_run: bool, new_tab: bo
     cmd = ["claude", "-r", s.uuid] + ([prompt] if prompt else [])
     if dry_run:
         if new_tab:
-            template = os.environ.get("GLS_TAB_OPENER", DEFAULT_TAB_OPENER)
+            template = os.environ.get("GLS_TAB_OPENER", _default_tab_opener())
             cmd_inner = f"claude -r {shlex.quote(s.uuid)}"
             print(f"# would spawn tab via: "
                   f"{template.format(cwd=shlex.quote(cwd), cmd=cmd_inner, uuid=s.uuid)}")
