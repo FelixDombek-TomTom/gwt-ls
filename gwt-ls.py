@@ -38,6 +38,8 @@ class Session:
     git_branch: str | None = None       # gitBranch as recorded in the JSONL
     last_cwd: str | None = None         # cwd at the last record (may differ from worktree path)
     agent_name: str | None = None       # slug-like name from `agent-name` records
+    is_live: bool = False               # a claude process is currently running this session
+    live_pid: int | None = None         # pid of that process (when is_live)
 
 
 @dataclass
@@ -319,10 +321,213 @@ def _resume_index() -> list[Session]:
     return out
 
 
-def resume_claude(prefix: str, prompt: str | None, *, dry_run: bool) -> int:
+CLAUDE_ACTIVE = Path.home() / ".claude" / "active"
+DEFAULT_TABS_PATH = Path.home() / ".claude" / "tabs.json"
+DEFAULT_TAB_OPENER = (
+    "gnome-terminal --tab --working-directory={cwd} -- "
+    "bash -ic '{cmd}; exec bash'"
+)
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError):
+        return False
+    except OSError:
+        return False
+    return True
+
+
+def _running_claude_pids() -> list[dict]:
+    """Walk /proc, return one dict per running `claude` process: pid, cwd, started_at."""
+    out: list[dict] = []
+    try:
+        proc_entries = os.listdir("/proc")
+    except OSError:
+        return out
+    for name in proc_entries:
+        if not name.isdigit():
+            continue
+        proc = f"/proc/{name}"
+        try:
+            with open(f"{proc}/comm") as fh:
+                if fh.read().strip() != "claude":
+                    continue
+            cwd = os.readlink(f"{proc}/cwd")
+            st = os.stat(proc)
+        except (OSError, PermissionError):
+            continue
+        out.append({"pid": int(name), "cwd": cwd, "started_at": st.st_mtime})
+    return out
+
+
+def _read_active_entries() -> dict[int, dict]:
+    """Read ~/.claude/active/*.json. Drop entries whose pid is no longer alive."""
+    out: dict[int, dict] = {}
+    if not CLAUDE_ACTIVE.is_dir():
+        return out
+    for f in CLAUDE_ACTIVE.glob("*.json"):
+        try:
+            data = json.loads(f.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        pid = data.get("pid")
+        if not isinstance(pid, int) or not _pid_alive(pid):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+            continue
+        out[pid] = data
+    return out
+
+
+def _heuristic_uuid_for(cwd: str, started_at: float, claimed: set[str]) -> str | None:
+    """Find a JSONL whose creation time falls inside this process's lifetime,
+    excluding any uuid already claimed by a hook-tracked entry."""
+    proj_dir = CLAUDE_PROJECTS / encode_project_path(cwd)
+    if not proj_dir.is_dir():
+        return None
+    # candidate = JSONL whose stat birth time >= started_at - 30s; prefer the latest
+    candidates: list[tuple[float, str]] = []
+    for f in proj_dir.glob("*.jsonl"):
+        if f.stem in claimed:
+            continue
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        birth = getattr(st, "st_birthtime", None) or st.st_ctime
+        if birth >= started_at - 30:
+            candidates.append((birth, f.stem))
+    if not candidates:
+        return None
+    # most recent birth wins
+    candidates.sort(reverse=True)
+    return candidates[0][1]
+
+
+def live_sessions() -> list[Session]:
+    """Combine hook-tracked + /proc-heuristic detection into a list of running Sessions."""
+    active = _read_active_entries()
+    procs = _running_claude_pids()
+    claimed: set[str] = set()
+    sessions: list[Session] = []
+
+    # 1) hook-tracked entries (exact)
+    for pid, data in active.items():
+        uuid = data.get("uuid")
+        cwd = data.get("cwd")
+        if not uuid or not cwd:
+            continue
+        claimed.add(uuid)
+        jsonl = CLAUDE_PROJECTS / encode_project_path(cwd) / f"{uuid}.jsonl"
+        try:
+            st = jsonl.stat()
+            mtime, size = st.st_mtime, st.st_size
+        except OSError:
+            mtime, size = data.get("started_at_epoch", 0.0), 0
+        s = Session(uuid=uuid, mtime=mtime, size=size, last_cwd=cwd,
+                    is_live=True, live_pid=pid)
+        if jsonl.is_file():
+            _enrich_session_from_path(s, jsonl)
+        sessions.append(s)
+
+    # 2) heuristic for unhooked processes
+    procs.sort(key=lambda p: p["started_at"])
+    for p in procs:
+        if p["pid"] in active:
+            continue
+        uuid = _heuristic_uuid_for(p["cwd"], p["started_at"], claimed)
+        if uuid is None:
+            # process is running but we can't pin a uuid — still surface it
+            s = Session(uuid=f"?{p['pid']}", mtime=p["started_at"], size=0,
+                        last_cwd=p["cwd"], is_live=True, live_pid=p["pid"])
+            sessions.append(s)
+            continue
+        claimed.add(uuid)
+        jsonl = CLAUDE_PROJECTS / encode_project_path(p["cwd"]) / f"{uuid}.jsonl"
+        try:
+            st = jsonl.stat()
+            mtime, size = st.st_mtime, st.st_size
+        except OSError:
+            mtime, size = p["started_at"], 0
+        s = Session(uuid=uuid, mtime=mtime, size=size, last_cwd=p["cwd"],
+                    is_live=True, live_pid=p["pid"])
+        _enrich_session_from_path(s, jsonl)
+        sessions.append(s)
+
+    sessions.sort(key=lambda s: s.mtime, reverse=True)
+    return sessions
+
+
+def spawn_tab(cwd: str, uuid: str | None) -> None:
+    """Fire-and-forget detached spawn of a new gnome-terminal tab via $GLS_TAB_OPENER."""
+    template = os.environ.get("GLS_TAB_OPENER", DEFAULT_TAB_OPENER)
+    cmd_inner = f"claude -r {shlex.quote(uuid)}" if uuid else "claude"
+    rendered = template.format(cwd=shlex.quote(cwd), cmd=cmd_inner, uuid=uuid or "")
+    subprocess.Popen(
+        rendered, shell=True, start_new_session=True,
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+
+def save_tabs(path: Path) -> int:
+    """Snapshot the current live set to PATH atomically. Returns count saved."""
+    sessions = live_sessions()
+    doc = {
+        "saved_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "tabs": [
+            {
+                "cwd": s.last_cwd,
+                "uuid": s.uuid if not s.uuid.startswith("?") else None,
+                "pid": s.live_pid,
+                "title": s.title or s.agent_name,
+            }
+            for s in sessions
+        ],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(doc, indent=2))
+    os.replace(tmp, path)
+    return len(doc["tabs"])
+
+
+def restore_tabs(path: Path, *, dry_run: bool = False) -> int:
+    """Spawn one detached tab per entry in PATH. Returns count spawned (or would-spawn)."""
+    import time as _time
+    try:
+        doc = json.loads(path.read_text())
+    except OSError as e:
+        print(f"gls: cannot read {path}: {e}", file=sys.stderr)
+        return 0
+    tabs = doc.get("tabs", [])
+    spawned = 0
+    for tab in tabs:
+        cwd = tab.get("cwd")
+        uuid = tab.get("uuid")
+        if not cwd:
+            continue
+        if dry_run:
+            template = os.environ.get("GLS_TAB_OPENER", DEFAULT_TAB_OPENER)
+            cmd_inner = f"claude -r {shlex.quote(uuid)}" if uuid else "claude"
+            rendered = template.format(cwd=shlex.quote(cwd), cmd=cmd_inner, uuid=uuid or "")
+            print(f"# {rendered}")
+        else:
+            spawn_tab(cwd, uuid)
+            _time.sleep(0.15)  # let gnome-terminal-server breathe between rapid spawns
+        spawned += 1
+    return spawned
+
+
+def resume_claude(prefix: str, prompt: str | None, *, dry_run: bool, new_tab: bool = False) -> int:
     """Look up a Claude session by short-UUID prefix, chdir to its workdir, exec claude -r.
 
-    Returns an exit code on error; on success, replaces the current process.
+    With new_tab=True, spawn a detached gnome-terminal tab instead of in-place exec.
+    Returns an exit code on error; on success, replaces the current process (or returns 0
+    immediately if new_tab=True).
     """
     matches = [s for s in _resume_index() if s.uuid.startswith(prefix)]
     if not matches:
@@ -351,8 +556,17 @@ def resume_claude(prefix: str, prompt: str | None, *, dry_run: bool) -> int:
         cwd = str(Path.home())
     cmd = ["claude", "-r", s.uuid] + ([prompt] if prompt else [])
     if dry_run:
-        print(f"# would chdir to: {cwd}")
-        print(f"# would exec:     {' '.join(shlex.quote(a) for a in cmd)}")
+        if new_tab:
+            template = os.environ.get("GLS_TAB_OPENER", DEFAULT_TAB_OPENER)
+            cmd_inner = f"claude -r {shlex.quote(s.uuid)}"
+            print(f"# would spawn tab via: "
+                  f"{template.format(cwd=shlex.quote(cwd), cmd=cmd_inner, uuid=s.uuid)}")
+        else:
+            print(f"# would chdir to: {cwd}")
+            print(f"# would exec:     {' '.join(shlex.quote(a) for a in cmd)}")
+        return 0
+    if new_tab:
+        spawn_tab(cwd, s.uuid)
         return 0
     os.chdir(cwd)
     try:
@@ -631,6 +845,10 @@ def _title_line(s: Session, indent: str, w_mt: int, size_w: int, st: Style) -> s
     title = "  ".join(title_parts)
     short_uuid = s.uuid.split("-", 1)[0]
     meta = st.dim(f"{fmt_mtime(s.mtime):<{w_mt}}  {fmt_size(s.size):>{size_w}}  {short_uuid}")
+    # for live sessions, replace the first 2 chars of `indent` with a green bullet so
+    # PR/extras lines remain aligned (those compute their offset from the original indent)
+    if s.is_live and len(indent) >= 2:
+        indent = st.green("● ") + indent[2:]
     return f"{indent}{meta}  {title}"
 
 
@@ -890,15 +1108,35 @@ def main(argv: list[str]) -> int:
     ap.add_argument("-r", "--resume", metavar="PREFIX",
                     help="resume a Claude session by short-UUID prefix (chdir to its workdir, "
                          "then exec `claude -r <uuid>`); pass PATH as the initial prompt")
+    ap.add_argument("--new-tab", action="store_true",
+                    help="with -r: spawn the resume in a detached gnome-terminal tab "
+                         "(via $GLS_TAB_OPENER) instead of replacing the current shell")
     ap.add_argument("--dry-run", action="store_true",
                     help="with -r: print the chdir + exec command without running them")
+    ap.add_argument("--live", action="store_true",
+                    help="list currently running Claude sessions")
+    ap.add_argument("--save-tabs", nargs="?", const=str(DEFAULT_TABS_PATH), metavar="PATH",
+                    help="snapshot the live session set to PATH (default: ~/.claude/tabs.json)")
+    ap.add_argument("--restore-tabs", nargs="?", const=str(DEFAULT_TABS_PATH), metavar="PATH",
+                    help="re-spawn one detached tab per entry in PATH (default: ~/.claude/tabs.json)")
     args = ap.parse_args(argv)
 
     # -r is an action mode; it short-circuits everything else
     if args.resume:
         # treat the optional positional as the initial prompt
         prompt = args.path if args.path != "." else None
-        return resume_claude(args.resume, prompt, dry_run=args.dry_run)
+        return resume_claude(args.resume, prompt, dry_run=args.dry_run, new_tab=args.new_tab)
+
+    # --save-tabs / --restore-tabs short-circuit too
+    if args.save_tabs is not None:
+        n = save_tabs(Path(args.save_tabs).expanduser())
+        print(f"gls: saved {n} tab(s) to {args.save_tabs}", file=sys.stderr)
+        return 0
+    if args.restore_tabs is not None:
+        n = restore_tabs(Path(args.restore_tabs).expanduser(), dry_run=args.dry_run)
+        verb = "would spawn" if args.dry_run else "spawned"
+        print(f"gls: {verb} {n} tab(s) from {args.restore_tabs}", file=sys.stderr)
+        return 0
     # default N depends on mode: feed default = 10, normal default = 1
     if args.num is None:
         args.num = 10 if args.claude else 1
@@ -920,6 +1158,30 @@ def main(argv: list[str]) -> int:
         and os.environ.get("NO_COLOR", "") == ""
     )
     st = Style(use_color)
+
+    # ---- --live: currently running Claude sessions ---------------------------------------
+    if args.live:
+        sessions = live_sessions()
+        progressive = (
+            sessions and not args.no_pr_titles and not args.json and use_color
+        )
+        if sessions and not args.no_pr_titles and not progressive:
+            fetch_pr_titles(sessions)
+        if args.json:
+            print(json.dumps({
+                "mode": "live",
+                "sessions": [asdict(s) for s in sessions],
+            }, indent=2))
+        else:
+            text, pending = render_latest(
+                sessions, len(sessions), args.extras, st,
+                collect_pending=progressive,
+            )
+            total_lines = text.count("\n") + 1
+            print(text, flush=True)
+            if pending:
+                progressive_fill_pr_titles(pending, total_lines, st)
+        return 0
 
     # ---- -c / --claude: flat feed of the latest N sessions across all projects -----------
     if args.claude:
