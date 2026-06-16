@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 864 272" width="864" height="272">
+<rect width="864" height="272" fill="#282c34" rx="6"/>
+<text x="14" y="23" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#abb2bf" xml:space="preserve">
+$ gls --live
+<tspan x="14" dy="18"><tspan font-weight="bold">multi-repo/frontend</tspan>  <tspan fill="#56b6c2">feature/metadata-provider</tspan></tspan>
+<tspan x="14" dy="18"><tspan fill="#98c379">● </tspan><tspan fill="#5c6370">2026-04-10 14:32  4.9M  d486fc7d</tspan>  add-metadata-feature-toggle</tspan>
+<tspan x="14" dy="18">                                   <tspan fill="#e5c07b">#347 feat(api): set new flag in MetadataProvider behind toggle</tspan>  <tspan fill="#c678dd">[merged]</tspan></tspan>
+<tspan x="14" dy="18"></tspan>
+<tspan x="14" dy="18"><tspan font-weight="bold">multi-repo/backend</tspan>  <tspan fill="#56b6c2">main</tspan></tspan>
+<tspan x="14" dy="18"><tspan fill="#98c379">● </tspan><tspan fill="#5c6370">2026-04-10 14:28  1.3M  8172eebc</tspan>  Plan ctor refactor</tspan>
+<tspan x="14" dy="18">                                   <tspan fill="#e5c07b">#341 refactor(api): tidy up the public surface</tspan>  <tspan fill="#c678dd">[merged]</tspan></tspan>
+<tspan x="14" dy="18"></tspan>
+<tspan x="14" dy="18"><tspan font-weight="bold">projects/dotfiles</tspan></tspan>
+<tspan x="14" dy="18"><tspan fill="#98c379">● </tspan><tspan fill="#5c6370">2026-04-10 14:15  680K   a3ebe1fb</tspan>  fix-prompt-formatting</tspan>
+<tspan x="14" dy="18"></tspan>
+<tspan x="14" dy="18"><tspan font-weight="bold">code</tspan></tspan>
+<tspan x="14" dy="18"><tspan fill="#98c379">● </tspan><tspan fill="#5c6370">2026-04-10 14:02     0B  ?1611543</tspan>  <tspan fill="#5c6370">(no title)</tspan></tspan>
+</text></svg>
