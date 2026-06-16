@@ -384,12 +384,15 @@ def _read_active_entries() -> dict[int, dict]:
 
 
 def _heuristic_uuid_for(cwd: str, started_at: float, claimed: set[str]) -> str | None:
-    """Find a JSONL whose creation time falls inside this process's lifetime,
-    excluding any uuid already claimed by a hook-tracked entry."""
+    """Find the JSONL in `cwd`'s project dir most likely owned by a process started at
+    `started_at`. Catches both fresh sessions (JSONL born after pstart) and resumed
+    sessions (JSONL pre-existed but its mtime has been updated since pstart).
+    Excludes uuids already claimed by an earlier hook-tracked or heuristic match."""
     proj_dir = CLAUDE_PROJECTS / encode_project_path(cwd)
     if not proj_dir.is_dir():
         return None
-    # candidate = JSONL whose stat birth time >= started_at - 30s; prefer the latest
+    # Candidates: JSONLs whose birth OR mtime is later than pstart-30s.
+    # Rank by mtime descending so the most-recently-active session wins.
     candidates: list[tuple[float, str]] = []
     for f in proj_dir.glob("*.jsonl"):
         if f.stem in claimed:
@@ -399,11 +402,11 @@ def _heuristic_uuid_for(cwd: str, started_at: float, claimed: set[str]) -> str |
         except OSError:
             continue
         birth = getattr(st, "st_birthtime", None) or st.st_ctime
-        if birth >= started_at - 30:
-            candidates.append((birth, f.stem))
+        threshold = started_at - 30
+        if birth >= threshold or st.st_mtime >= threshold:
+            candidates.append((st.st_mtime, f.stem))
     if not candidates:
         return None
-    # most recent birth wins
     candidates.sort(reverse=True)
     return candidates[0][1]
 
@@ -434,8 +437,10 @@ def live_sessions() -> list[Session]:
             _enrich_session_from_path(s, jsonl)
         sessions.append(s)
 
-    # 2) heuristic for unhooked processes
-    procs.sort(key=lambda p: p["started_at"])
+    # 2) heuristic for unhooked processes. Sort youngest-first so the most-recently-
+    # spawned pid gets first pick of the most-recently-modified JSONL — that's the
+    # right intuition for "this pid is probably writing to this JSONL right now".
+    procs.sort(key=lambda p: p["started_at"], reverse=True)
     for p in procs:
         if p["pid"] in active:
             continue
