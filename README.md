@@ -66,13 +66,21 @@ Combine with a 5-minute cron snapshot so reboot recovery always has a recent man
 */5 * * * * /home/<you>/.local/bin/gls --save-tabs >/dev/null 2>&1
 ```
 
-The spawn template is configurable. Default is gnome-terminal; override for kitty/wezterm/etc. via env var:
+**How the spawn works.** The default opener invokes `gnome-terminal --tab` with `env GLS_CLAUDE_RESUME_UUID=<uuid> $SHELL` — your full rc chain runs (so claude gets your real interactive env: PATH, mise, tokens, aliases), and a tiny snippet sourced at the end of your rc launches claude with the resume uuid. To enable this, add one line to the end of your `~/.zshrc` (or `~/.bashrc`):
+
+```sh
+[ -r "$HOME/code/my/gwt-ls/shell/gls-autolaunch.sh" ] && . "$HOME/code/my/gwt-ls/shell/gls-autolaunch.sh"
+```
+
+The snippet is a few POSIX-shell lines (see [shell/gls-autolaunch.sh](shell/gls-autolaunch.sh)): if `GLS_CLAUDE_RESUME_UUID` is set, it unsets it and runs `claude -r <uuid>`. Otherwise it's a no-op, so a normal tab still behaves normally. After claude exits you stay in your interactive shell.
+
+**Other terminals.** Override via `$GLS_TAB_OPENER`. The old templated form is still supported (`{cwd}`, `{cmd}`, `{uuid}` placeholders):
 
 ```sh
 export GLS_TAB_OPENER="kitten @ launch --type=os-window --cwd {cwd} bash -ic '{cmd}; exec bash'"
 ```
 
-`{cwd}` is shell-quoted; `{cmd}` is `claude -r <uuid>` or plain `claude` when no uuid was attributed.
+`{cwd}` is shell-quoted; `{cmd}` is `claude -r <uuid>` or plain `claude`.
 
 ### Drill into one session
 
