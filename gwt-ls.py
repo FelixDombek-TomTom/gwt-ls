@@ -40,6 +40,9 @@ class Session:
     agent_name: str | None = None       # slug-like name from `agent-name` records
     is_live: bool = False               # a claude process is currently running this session
     live_pid: int | None = None         # pid of that process (when is_live)
+    find_matches: list[dict] = field(default_factory=list)
+        # each: {"snippet": str, "span": [s, e], "source": "user"|"assistant"|"title"|"agent_name"|"last_prompt"|"raw"}
+    find_match_count: int = 0           # total matches in this session (may exceed len(find_matches) since we cap)
 
 
 @dataclass
@@ -651,6 +654,214 @@ def discover_latest_sessions(
     return out
 
 
+_FIND_MATCH_CAP = 8   # max snippets stored per session
+
+
+def _snippet_with_span(text: str, span: tuple[int, int], width: int = 80) -> tuple[str, tuple[int, int]]:
+    """Return (snippet, span_within_snippet) for a ~width-char window centered on `span`."""
+    start, end = span
+    avail = max(20, width - (end - start))
+    margin = avail // 2
+    win_s = max(0, start - margin)
+    win_e = min(len(text), end + margin)
+    body = text[win_s:win_e]
+    # Carry the match's offset within `body` before any whitespace squashing.
+    match_s_in_body = start - win_s
+    match_e_in_body = end - win_s
+    # Single-line the body. Replacing newlines with spaces preserves indices.
+    body = body.replace("\n", " ").replace("\r", " ")
+    # Trim leading whitespace; adjust the match offset accordingly.
+    lstripped = body.lstrip()
+    trimmed_left = len(body) - len(lstripped)
+    body = lstripped.rstrip()
+    match_s_in_body -= trimmed_left
+    match_e_in_body -= trimmed_left
+    # Prepend/append ellipses; shift offsets by the prefix.
+    prefix = "…" if win_s > 0 else ""
+    suffix = "…" if win_e < len(text) else ""
+    snippet = prefix + body + suffix
+    snip_s = max(0, match_s_in_body) + len(prefix)
+    snip_e = max(snip_s, match_e_in_body + len(prefix))
+    snip_s = min(snip_s, len(snippet))
+    snip_e = min(snip_e, len(snippet))
+    return snippet, (snip_s, snip_e)
+
+
+def _collect_matches_in(text: str, source: str, query: str, case_sensitive: bool,
+                       out_matches: list[dict], count_ref: list[int]) -> None:
+    """Find all positions of `query` in `text` and append snippets to out_matches (capped)."""
+    if not text or not query:
+        return
+    hay = text if case_sensitive else text.lower()
+    needle = query if case_sensitive else query.lower()
+    start = 0
+    while True:
+        i = hay.find(needle, start)
+        if i < 0:
+            return
+        count_ref[0] += 1
+        if len(out_matches) < _FIND_MATCH_CAP:
+            snippet, span = _snippet_with_span(text, (i, i + len(query)))
+            out_matches.append({
+                "snippet": snippet,
+                "snippet_span": list(span),  # [start, end] within snippet — for highlighting
+                "source": source,
+            })
+        start = i + 1  # overlapping matches OK; advance by 1 so we don't loop forever
+
+
+def _extract_conversation_fields(record: dict) -> list[tuple[str, str]]:
+    """Return [(source, text), ...] for the meaningful conversation fields in this record.
+    Excludes tool args, tool results, file-history snapshots, hook attachments."""
+    t = record.get("type")
+    out: list[tuple[str, str]] = []
+    if t == "user" and "promptId" in record:
+        msg = record.get("message", {})
+        c = msg.get("content")
+        if isinstance(c, str):
+            txt = c
+        elif isinstance(c, list):
+            parts: list[str] = []
+            for x in c:
+                if isinstance(x, dict) and x.get("type") == "text":
+                    parts.append(x.get("text", ""))
+            txt = "\n".join(parts)
+        else:
+            txt = ""
+        # skip slash-command / local-command wrappers and the "session continued from..." preamble
+        if (txt and not txt.startswith("<") and
+                not txt.startswith("This session is being continued") and
+                "=== HANDOFF ===" not in txt[:120]):
+            out.append(("user", txt))
+    elif t == "assistant":
+        msg = record.get("message", {})
+        c = msg.get("content")
+        if isinstance(c, list):
+            for x in c:
+                if isinstance(x, dict) and x.get("type") == "text":
+                    txt = x.get("text", "")
+                    if txt:
+                        out.append(("assistant", txt))
+    elif t == "ai-title":
+        v = record.get("aiTitle")
+        if v:
+            out.append(("title", v))
+    elif t == "agent-name":
+        v = record.get("agentName")
+        if v:
+            out.append(("agent_name", v))
+    elif t == "last-prompt":
+        v = record.get("lastPrompt")
+        if v:
+            out.append(("last_prompt", v))
+    return out
+
+
+def find_sessions(
+    query: str, *,
+    mode: str,                # "find" (conversation) or "find-all" (raw bytes)
+    case_sensitive: bool,
+    filter_path: Path | None,
+    include_tmp: bool,
+    n: int,
+) -> list[Session]:
+    """Return Sessions whose content contains `query`. mmap prefilter + record-by-record
+    extraction for "find"; raw-line snippet collection for "find-all"."""
+    import mmap
+    if not query:
+        return []
+    needle_bytes = (query if case_sensitive else query.lower()).encode("utf-8", "replace")
+
+    results: list[Session] = []
+    if not CLAUDE_PROJECTS.is_dir():
+        return results
+
+    for proj_dir in CLAUDE_PROJECTS.iterdir():
+        if not proj_dir.is_dir():
+            continue
+        for jsonl in proj_dir.glob("*.jsonl"):
+            try:
+                st = jsonl.stat()
+                if st.st_size == 0:
+                    continue
+            except OSError:
+                continue
+            # Fast prefilter: mmap + byte search. If the bytes don't appear at all, skip.
+            try:
+                with jsonl.open("rb") as fh:
+                    with mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                        if case_sensitive:
+                            hit = mm.find(needle_bytes) >= 0
+                        else:
+                            # case-insensitive: lowercase the haystack in chunks would be slow;
+                            # rely on the slow path below to confirm, but only if the file has
+                            # any byte that hints. Cheapest correct option: skip prefilter for
+                            # case-insensitive mode and rely on the slow path.
+                            hit = True
+            except (OSError, ValueError):
+                continue
+            if not hit:
+                continue
+
+            # Slow path: walk records, collect matches.
+            matches: list[dict] = []
+            count_ref = [0]
+            try:
+                with jsonl.open(encoding="utf-8", errors="replace") as fh:
+                    if mode == "find-all":
+                        for line in fh:
+                            _collect_matches_in(line, "raw", query, case_sensitive,
+                                                matches, count_ref)
+                            if len(matches) >= _FIND_MATCH_CAP and count_ref[0] > _FIND_MATCH_CAP:
+                                # keep counting via cheap str.count
+                                for rest in fh:
+                                    if case_sensitive:
+                                        count_ref[0] += rest.count(query)
+                                    else:
+                                        count_ref[0] += rest.lower().count(query.lower())
+                                break
+                    else:  # "find" — conversation text only
+                        for line in fh:
+                            if not line.strip():
+                                continue
+                            try:
+                                r = json.loads(line)
+                            except json.JSONDecodeError:
+                                continue
+                            for source, text in _extract_conversation_fields(r):
+                                _collect_matches_in(text, source, query, case_sensitive,
+                                                    matches, count_ref)
+            except OSError:
+                continue
+
+            if count_ref[0] == 0:
+                continue
+
+            s = Session(uuid=jsonl.stem, mtime=st.st_mtime, size=st.st_size)
+            s.find_matches = matches
+            s.find_match_count = count_ref[0]
+            _enrich_session_from_path(s, jsonl)
+
+            if filter_path is not None:
+                if not s.last_cwd:
+                    continue
+                try:
+                    cwd_r = Path(s.last_cwd).resolve()
+                except OSError:
+                    continue
+                if cwd_r != filter_path and not cwd_r.is_relative_to(filter_path):
+                    continue
+            elif not include_tmp and s.last_cwd and _is_tmp_cwd(s.last_cwd):
+                continue
+
+            results.append(s)
+
+    results.sort(key=lambda s: s.mtime, reverse=True)
+    if n > 0:
+        results = results[:n]
+    return results
+
+
 def _session_label(s: Session) -> str:
     """Build a 'parent/basename' style label from the session's recorded cwd."""
     cwd = s.last_cwd
@@ -669,6 +880,45 @@ def _session_label(s: Session) -> str:
     if len(parts) >= 2:
         return "/".join(parts[-2:])
     return parts[0] if parts else s_cwd
+
+
+_SOURCE_LABEL = {
+    "user":        "user prompt",
+    "assistant":   "assistant",
+    "title":       "ai title",
+    "agent_name":  "agent name",
+    "last_prompt": "last prompt",
+    "raw":         "raw",
+}
+
+
+def _highlight_snippet(snippet: str, span: list[int], st: Style) -> str:
+    """Underline/yellow the [start, end) span within snippet for terminal display."""
+    a, b = span
+    if a >= b or a < 0 or b > len(snippet):
+        return snippet
+    return snippet[:a] + st.yellow(snippet[a:b]) + snippet[b:]
+
+
+def _find_match_lines(s: Session, indent: str, st: Style, show_all: bool) -> list[str]:
+    """Render the ↪ match lines for one session. Returns [] when there are no matches."""
+    if not s.find_matches:
+        return []
+    items = s.find_matches if show_all else s.find_matches[:1]
+    lines: list[str] = []
+    for m in items:
+        snippet = _highlight_snippet(m["snippet"], m.get("snippet_span", [-1, -1]), st)
+        src_label = _SOURCE_LABEL.get(m["source"], m["source"])
+        lines.append(f"{indent}{st.dim('↪')} {snippet}  {st.dim('← ' + src_label)}")
+    if not show_all and s.find_match_count > 1:
+        more = s.find_match_count - 1
+        lines.append(st.dim(
+            f"{indent}  ({more} more match{'es' if more != 1 else ''}; -x to see all)"))
+    elif show_all and s.find_match_count > len(s.find_matches):
+        more = s.find_match_count - len(s.find_matches)
+        lines.append(st.dim(
+            f"{indent}  ({more} more match{'es' if more != 1 else ''} elided)"))
+    return lines
 
 
 def render_latest(
@@ -709,6 +959,9 @@ def render_latest(
                     line_index=len(out) - 1,
                     session=s, pr_indent=pr_indent,
                 ))
+
+        if s.find_matches:
+            out.extend(_find_match_lines(s, extras_indent, st, show_all=extras))
 
         if extras:
             slug_uuid = f"{s.slug}  {s.uuid}" if s.slug else s.uuid
@@ -1136,6 +1389,14 @@ def main(argv: list[str]) -> int:
                     help="skip fetching PR titles via `gh` (faster, offline-safe)")
     ap.add_argument("--json", action="store_true", help="emit JSON instead of human view")
     ap.add_argument("--no-color", action="store_true", help="disable ANSI color")
+    ap.add_argument("--find", metavar="STRING",
+                    help="list sessions whose conversation text contains STRING "
+                         "(user prompts, assistant text, ai-title, agent-name, last-prompt)")
+    ap.add_argument("--find-all", metavar="STRING",
+                    help="like --find but searches the entire JSONL (incl. tool results); "
+                         "noisier but catches strings only present in file contents claude read")
+    ap.add_argument("-S", "--case-sensitive", action="store_true",
+                    help="with --find / --find-all: case-sensitive substring match")
     ap.add_argument("-r", "--resume", metavar="PREFIX",
                     help="resume a Claude session by short-UUID prefix (chdir to its workdir, "
                          "then exec `claude -r <uuid>`); pass PATH as the initial prompt")
@@ -1170,7 +1431,12 @@ def main(argv: list[str]) -> int:
         return 0
     # default N depends on mode: feed default = 10, normal default = 1
     if args.num is None:
-        args.num = 10 if args.claude else 1
+        if args.find or args.find_all:
+            args.num = 0  # find mode: unlimited matches (already filtered by the substring)
+        elif args.claude:
+            args.num = 10
+        else:
+            args.num = 1
     if args.all:
         args.num = sys.maxsize
 
@@ -1189,6 +1455,49 @@ def main(argv: list[str]) -> int:
         and os.environ.get("NO_COLOR", "") == ""
     )
     st = Style(use_color)
+
+    # ---- --find / --find-all: content search ---------------------------------------------
+    if args.find or args.find_all:
+        if args.find and args.find_all:
+            print("gls: --find and --find-all are mutually exclusive", file=sys.stderr)
+            return 2
+        mode = "find" if args.find else "find-all"
+        query = args.find or args.find_all
+        filter_path = target if explicit_path else None
+        sessions = find_sessions(
+            query=query,
+            mode=mode,
+            case_sensitive=args.case_sensitive,
+            filter_path=filter_path,
+            include_tmp=args.include_tmp,
+            n=args.num if args.num > 0 else 0,
+        )
+        if not sessions:
+            print(f"gls: no sessions match {query!r}", file=sys.stderr)
+            return 0
+        progressive = (
+            sessions and not args.no_pr_titles and not args.json and use_color
+        )
+        if sessions and not args.no_pr_titles and not progressive:
+            fetch_pr_titles(sessions)
+        if args.json:
+            print(json.dumps({
+                "mode": mode,
+                "query": query,
+                "case_sensitive": args.case_sensitive,
+                "filter_path": str(filter_path) if filter_path else None,
+                "sessions": [asdict(s) for s in sessions],
+            }, indent=2))
+        else:
+            text, pending = render_latest(
+                sessions, len(sessions), args.extras, st,
+                collect_pending=progressive,
+            )
+            total_lines = text.count("\n") + 1
+            print(text, flush=True)
+            if pending:
+                progressive_fill_pr_titles(pending, total_lines, st)
+        return 0
 
     # ---- --live: currently running Claude sessions ---------------------------------------
     if args.live:
