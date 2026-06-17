@@ -1,6 +1,6 @@
 # gwt-ls
 
-Inspect git worktrees and the Claude Code sessions that ran in them, plus snapshot/restore your open Claude tabs across a reboot.
+Inspect git worktrees and the Claude Code sessions that ran in them. Search session content, see what's running right now, resume a session by short UUID, and snapshot/restore your open Claude tabs across a reboot.
 
 A single-file Python tool. Pipe-friendly, `gh`-aware, read-only by default (the tab-spawning actions are explicit).
 
@@ -34,11 +34,29 @@ Bump the session count with `-n N` (default 1) or get all of them with `-a`. `-n
 
 ### See what's running right now
 
-`gls --live` lists Claude sessions that have a process still alive. Each row gets a green `● ` bullet. Attribution uses `~/.claude/active/<pid>.json` when populated (see "Hooks" below); falls back to a `/proc` + JSONL-birth-time heuristic for sessions started before hooks were installed.
+`gls --live` lists Claude sessions that have a process still alive. Each row gets a green `● ` bullet. Attribution uses `~/.claude/active/<pid>.json` when populated (see "Hooks" below); falls back to a `/proc` + JSONL-birth/mtime heuristic for sessions started before hooks were installed.
 
 ![](images/live.svg)
 
 The 8-char UUID column on every detail row is what you paste into `gls -r`.
+
+### Find a session by content
+
+`gls --find "STRING"` lists sessions whose conversation text contains the string — real user prompts, assistant text, ai-title, agent-name, last-prompt. Tool calls and tool results are excluded so file contents claude happened to read don't drown out the actual conversation. Sorted by recency, no built-in cap.
+
+```sh
+gls --find "trailer limits"          # which session discussed this?
+gls --find "GOSDK-213660"            # finds it in titles, prompts, and replies
+gls --find "trailer" ~/code/foo      # restrict to sessions whose cwd lives under foo
+gls --find "trailer" -x              # show all matches per session (up to 8 + elided count)
+gls --find "trailer" -S              # case-sensitive
+gls --find-all "trailer"             # *include* tool results — noisy but catches strings
+                                     # that only appear in files claude opened
+```
+
+Each match line is `↪ …snippet centered on the match (yellow on TTY)… ← user prompt` (or `← assistant`, `← ai title`, etc.). Default shows one match per session with a `(N more matches; -x to see all)` trailer; `-x` expands.
+
+A ~500-jsonl corpus searches in under a second thanks to an `mmap` byte-prefilter that skips files with no occurrence of the query at all.
 
 ### Resume a specific session from anywhere
 
@@ -90,7 +108,7 @@ Add `-x` to any view to expose, under each detail row: the session's recorded `g
 
 ### Machine-readable output
 
-`gls --json` emits the same data as JSON. `mode` is `folder`, `repo`, `claude`, or `live`. Sessions include `pr_state`, `pr_ci`, `slug`, `git_branch`, `last_cwd`, `agent_name`, `is_live`, `live_pid`. Pipe through `jq` for anything more specific.
+`gls --json` emits the same data as JSON. `mode` is `folder`, `repo`, `claude`, `live`, `find`, or `find-all`. Sessions include `pr_state`, `pr_ci`, `slug`, `git_branch`, `last_cwd`, `agent_name`, `is_live`, `live_pid`, plus `find_matches` / `find_match_count` in find modes. Pipe through `jq` for anything more specific.
 
 ### Offline / instant rendering
 
@@ -118,6 +136,9 @@ Sample scripts and the `~/.claude/settings.json` entries live in [hooks/](hooks/
 | `-r PREFIX`, `--resume PREFIX` | chdir + `claude -r <full-uuid>` by short UUID prefix. Trailing positional is the initial prompt. |
 | `--new-tab` | (with `-r`) spawn-detached in a new tab instead of in-place exec. |
 | `--dry-run` | (with `-r` or `--restore-tabs`) print the would-be commands. |
+| `--find STRING` | list sessions whose conversation text contains STRING. |
+| `--find-all STRING` | like `--find` but searches the entire JSONL (incl. tool results). |
+| `-S`, `--case-sensitive` | (with `--find` / `--find-all`) case-sensitive substring match. |
 | `--live` | list currently running Claude sessions. |
 | `--save-tabs [PATH]` | snapshot live set to PATH (default `~/.claude/tabs.json`). |
 | `--restore-tabs [PATH]` | spawn one tab per entry in PATH. |
